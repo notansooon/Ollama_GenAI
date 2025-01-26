@@ -1,7 +1,9 @@
 
 import streamlit as st
+import ollama
 import os
-import ollama 
+import tempfile
+from chromadb.config import Settings
 
 from langchain_community.document_loaders import UnstructuredPDFLoader
 from langchain_community.document_loaders import OnlinePDFLoader
@@ -18,137 +20,138 @@ from langchain_ollama import ChatOllama
 from langchain_core.runnables import RunnablePassthrough
 from langchain.retrievers.multi_query import MultiQueryRetriever
 
-
-
 import nltk
+
+# Download necessary NLTK data
 nltk.download('punkt_tab')
-nltk.download('averaged_perceptron_tagger_eng')        
-        
+nltk.download('averaged_perceptron_tagger_eng')
 
 model = "llama3.2"
 
+def dataProcess(file_Upload):
+    if not file_Upload:
+        print("error - no file uploaded")
+        return None
 
+    print("Data Exist:", file_Upload)
 
-def dataProcess(data):
-        if data:
-                print("Data Exist:", data)
-        else:
-                print("error")
-                return None
-        
+    # Write the uploaded file to a temporary file so the loader can read it
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_file:
+        tmp_file.write(file_Upload.read())
+        path = tmp_file.name
 
-        try:
-                loader = UnstructuredPDFLoader(file_path=data)
-                document = loader.load()
-                print("Processing successful")
-                
-                content = document[0].page_content
-                
-                return document
+    st.write(f"Temporary file path: {path}")
+    st.write(f"File exists? {os.path.exists(path)}")
 
+    loader = UnstructuredPDFLoader(file_path=path)
+    document = loader.load()
+    print("Processing successful")
 
-        except Exception as e:
-                print(f"Error during processing: {e}")
-                return None
-
-
-        
-
-
-
-
-
-
+    return document
 
 def spitTxt(document):
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=300,
-        )
-        str(document)
-        try: 
-                chunks = text_splitter.split_documents(document)
-                return chunks
-        except Exception as e:
-                print("error here")
-                print("Error", {e})
-        print("Done spliiting") 
-
-        
+    # Split the document into chunks
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1000,
+        chunk_overlap=300,
+    )
+    try:
+        chunks = text_splitter.split_documents(document)
+        return chunks
+    except Exception as e:
+        print("Error splitting document:", e)
+        return None
 
 def vectorDB(chunks):
-        ollama.pull('nomic-embed-text')
+    # Pull the embedding model
+    #ollama.pull('nomic-embed-text')
+    
 
-        vectordb = Chroma.from_documents(
-            documents=chunks,
-            embedding=OllamaEmbeddings(model='nomic-embed-text')
-        )
-        print("Done Embedding")
-
-        return vectordb
-
-#Vector Db
-
-
-def retrieval(model, vectordb):
-    llm = ChatOllama(
-        model=model,
-        temperature=0.8,
-        num_predict=256,
+    # Create the vector database
+    vectordb = Chroma.from_documents(
+        documents=chunks,
+        embedding=OllamaEmbeddings(model='nomic-embed-text'),
+        
+        
     )
+    print("Done Embedding")
+    return vectordb
 
-    prompt_template = PromptTemplate(
-        input_variables=["question"],
-        template="""You are an AI language model assistant. Your task is to generate five
+def main():
+    
+    
+    
+    st.title("AI Document Reader")
+
+    df = st.file_uploader(label="File Upload")
+
+    if df is not None:
+        data = dataProcess(df)
+        if data is not None:
+            split = spitTxt(data)
+            if split is not None:
+                vectordb = vectorDB(split)
+
+                if vectordb is not None:
+                    userInput = st.text_input("Input Your Question")
+                    if userInput:
+                        
+                        llm_instance = ChatOllama(
+                            model=model,
+                            temperature=0.8,
+                            num_predict=256,
+                        )
+
+                        # PromptTemplate for multi-query retrieval
+                        prompt_template = PromptTemplate(
+                            input_variables=["question"],
+                            template="""You are an AI language model assistant. Your task is to generate five
 different versions of the given user question to retrieve relevant documents from
 a vector database. By generating multiple perspectives on the user question, your
 goal is to help the user overcome some of the limitations of the distance-based
 similarity search. Provide these alternative questions separated by newlines.
 Original question: {question}""",
-    )
+                        )
 
-    retriever_from_llm = MultiQueryRetriever.from_llm(
-        retriever=vectordb.as_retriever(),
-        llm=llm,
-        prompt=prompt_template,
-    )
+                        # Create a MultiQueryRetriever
+                        retriever_from_llm = MultiQueryRetriever.from_llm(
+                            retriever=vectordb.as_retriever(),
+                            llm=llm_instance,
+                            prompt=prompt_template,
+                        )
 
-    template = """Answer the question based ONLY on the following context:
+                        # A final template for answering the user question
+                        template = """Answer the question based ONLY on the following context:
 {context}
 Question: {question}
 """
 
-    prompt = ChatPromptTemplate.from_template(template=template)
+                        chat_prompt = ChatPromptTemplate.from_template(template=template)
 
-    chain = (
-        {"context": retriever_from_llm, "question": RunnablePassthrough()}
-        | prompt
-        | llm
-        | StrOutputParser()
-    )
+                        # Create the chain
+                        chain = (
+                            {"context": retriever_from_llm, "question": RunnablePassthrough()}
+                            | chat_prompt
+                            | llm_instance
+                            | StrOutputParser()
+                        )
 
+                        
+                        result = chain.invoke(userInput)
 
-
-def main():
-        st.title("AI Document Reader")
-
-        
-        df = st.file_uploader(label="File Upload")
-               
-
-
-        data =  dataProcess(df)
-
-        if (data is None):
-                st.write("Failed to process the file. Please upload a valid document.")
-        
-
-        split = spitTxt(data)
-
-        st.text_input("Input Your Question")
-
-
-
+                        # Display the result in Streamlit
+                        st.write("### Answer:")
+                        st.write(result)
+                    else:
+                        st.write("Please enter a question to query the database.")
+                else:
+                    st.write("Failed to create vector database.")
+            else:
+                st.write("Failed to split the document into chunks.")
+        else:
+            st.write("Failed to process the file. Please upload a valid document.")
+    else:
+        st.write("Please upload a document to start.")
 
 if __name__ == "__main__":
-   main()
+    main()
