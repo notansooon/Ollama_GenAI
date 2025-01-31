@@ -1,0 +1,15 @@
+ if not file_Upload:
+        print("error - no file uploaded")
+        return None
+
+    print("Data Exist:", file_Upload)
+
+    # Write the uploaded file to a temporary file so the loader can read it
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_file:
+        tmp_file.write(file_Upload.read())
+        path = tmp_file.name
+
+
+    #Testing purposes
+    st.write(f"Temporary file path: {path}")
+    st.write(f"File exists? {os.path.exists(path)}")

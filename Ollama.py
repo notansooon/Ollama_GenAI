@@ -29,21 +29,11 @@ nltk.download('averaged_perceptron_tagger_eng')
 model = "llama3.2"
 
 def dataProcess(file_Upload):
-    if not file_Upload:
-        print("error - no file uploaded")
-        return None
-
-    print("Data Exist:", file_Upload)
-
-    # Write the uploaded file to a temporary file so the loader can read it
-    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_file:
-        tmp_file.write(file_Upload.read())
-        path = tmp_file.name
-
-    st.write(f"Temporary file path: {path}")
-    st.write(f"File exists? {os.path.exists(path)}")
-
-    loader = UnstructuredPDFLoader(file_path=path)
+    
+    
+    
+   
+    loader = UnstructuredPDFLoader(file_path=file_Upload)
     document = loader.load()
     print("Processing successful")
 
@@ -64,7 +54,7 @@ def spitTxt(document):
 
 def vectorDB(chunks):
     # Pull the embedding model
-    #ollama.pull('nomic-embed-text')
+    ollama.pull('nomic-embed-text')
     
 
     # Create the vector database
@@ -83,11 +73,14 @@ def main():
     
     st.title("AI Document Reader")
 
-    df = st.file_uploader(label="File Upload")
-
+    #df = st.file_uploader(label="File Upload")
+    df = "./data/market.pdf"
+    st.write("this is not running")
     if df is not None:
+        
         data = dataProcess(df)
         if data is not None:
+            st.write("what about here")
             split = spitTxt(data)
             if split is not None:
                 vectordb = vectorDB(split)
@@ -120,7 +113,7 @@ Original question: {question}""",
                             prompt=prompt_template,
                         )
 
-                        # A final template for answering the user question
+                        
                         template = """Answer the question based ONLY on the following context:
 {context}
 Question: {question}
@@ -139,7 +132,7 @@ Question: {question}
                         
                         result = chain.invoke(userInput)
 
-                        # Display the result in Streamlit
+                       
                         st.write("### Answer:")
                         st.write(result)
                     else:
